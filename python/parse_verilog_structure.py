@@ -231,6 +231,7 @@ precedence = (
     ('nonassoc','EQUALCOND','UNEQUALCOND'),
     ('left','PLUS','MINUS'),
     ('left','TIMES','DIVIDE'),
+    ('right','UNARY_OPS'),
     )
 
 # dictionary of names (for storing variables)
@@ -464,6 +465,9 @@ def p_basic_expression(p):
                            | basic_expression LOGICAND basic_expression
                            | basic_expression XOR basic_expression
                            | basic_expression EQUALCOND basic_expression
+                           | INVERT basic_expression %prec UNARY_OPS
+                           | LOGICINVERT basic_expression %prec UNARY_OPS
+                           | MINUS basic_expression %prec UNARY_OPS
     '''
                                 # | compareexpression
                                 # | NUMBERSPEC
