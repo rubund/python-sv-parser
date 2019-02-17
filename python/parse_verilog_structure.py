@@ -228,6 +228,7 @@ global_lexer.lineno = 1
 
 # Precedence rules for the arithmetic operators
 precedence = (
+    ('nonassoc','EQUALCOND','UNEQUALCOND'),
     ('left','PLUS','MINUS'),
     ('left','TIMES','DIVIDE'),
     )
@@ -443,39 +444,42 @@ def p_optional_tick(p):
     '''
 
 def p_expression(p):
-    '''expression :   legal_expression_member
-                    | expression legal_expression_member
+    '''expression :   basic_expression
     '''
                     #| compareexpression
                     #| expression compareexpression
 
-def p_legal_expression_member(p):
-    '''legal_expression_member :   NUMBER
-                                 | NUMBERSPEC
-                                 | name_or_name_in_package
-                                 | PLUS
-                                 | MINUS
-                                 | TIMES
-                                 | DIVIDE
-                                 | CONDOR
-                                 | CONDAND
-                                 | LOGICOR
-                                 | LOGICAND
-                                 | INVERT
-                                 | LOGICINVERT
-                                 | XOR
-                                 | LPAREN expression RPAREN
+def p_basic_expression(p):
+    '''basic_expression :    NUMBER
+                           | name_or_name_in_package
+                           | NUMBERSPEC
+                           | LPAREN expression RPAREN
+                           | basic_expression PLUS basic_expression
+                           | basic_expression MINUS basic_expression
+                           | basic_expression TIMES basic_expression
+                           | basic_expression DIVIDE basic_expression
+                           | basic_expression CONDOR basic_expression
+                           | basic_expression CONDAND basic_expression
+                           | basic_expression LOGICOR basic_expression
+                           | basic_expression LOGICAND basic_expression
+                           | basic_expression XOR basic_expression
+                           | basic_expression EQUALCOND basic_expression
     '''
                                 # | compareexpression
+                                # | NUMBERSPEC
+                                # | name_or_name_in_package
+                                # | PLUS
+                                # | MINUS
+                                # | TIMES
+                                # | DIVIDE
+                                # | CONDOR
+                                # | CONDAND
+                                # | LOGICOR
+                                # | LOGICAND
+                                # | INVERT
+                                # | LOGICINVERT
+                                # | XOR
 
-def p_compareexpression(p):
-    '''compareexpression : expression comparator expression
-    '''
-
-def p_comparator(p):
-    '''comparator :   EQUALCOND
-                    | UNEQUALCOND
-    '''
 
 def p_expressions_comma_opt(p):
     '''expressions_comma_opt : expressions_comma
