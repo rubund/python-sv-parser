@@ -392,7 +392,7 @@ def p_connections(p):
     '''
 
 def p_connection(p):
-    '''connection : POINT NAME LPAREN expression_opt RPAREN
+    '''connection : POINT NAME LPAREN expressions_or_expressions_comma_opt RPAREN
     '''
 
 def p_always_ff_expr(p):
