@@ -12,7 +12,8 @@ tokens = [
     'IGNOREBEGINENDCONTENT', 'AT', 'POINT',
     'NUMBERSPEC', 'CONDOR', 'CONDAND', 'LOGICOR',
     'LOGICAND', 'INVERT', 'LOGICINVERT' , 'XOR',
-    'EQUALCOND', 'UNEQUALCOND'
+    'EQUALCOND', 'UNEQUALCOND', 'NONBLOCKASSIGN',
+    'BIGGER', 'SMALLER', 'POWEROF', 'PLUSPLUS', 'MINUSMINUS'
     ]
 reserved = {
   'module' : 'MODULE',
@@ -42,6 +43,9 @@ reserved = {
   'if'         : 'IF',
   'else'       : 'ELSE',
   'for'        : 'FOR',
+  'genvar'     : 'GENVAR',
+  'package'    : 'PACKAGE',
+  'endpackage' : 'ENDPACKAGE',
 }
 
 states = (
@@ -56,7 +60,9 @@ import ply.lex as lex
 # Tokens
 
 t_PLUS    = r'\+'
+t_PLUSPLUS= r'\+\+'
 t_MINUS   = r'-'
+t_MINUSMINUS = r'--'
 t_TIMES   = r'\*'
 t_DIVIDE  = r'/'
 t_LPAREN  = r'\('
@@ -74,6 +80,10 @@ t_HASH    = r'\#'
 t_COMMA   = r','
 t_POINT   = r'\.'
 t_SEMICOLON = r';'
+t_NONBLOCKASSIGN = r'<='
+t_BIGGER  = r'>'
+t_SMALLER = r'<'
+t_POWEROF = r'\*\*'
 t_MODULE  = r'module'
 t_ENDMODULE  = r'endmodule'
 
@@ -122,7 +132,7 @@ def t_NAME(t):
     return t
 
 def t_NUMBERSPEC(t):
-    r'\d+\'[bhd][\dxz]+'
+    r'\d+\'[bhd][\dxzA-Fa-f]+'
     return t
 
 def t_NUMBER(t):
@@ -214,7 +224,7 @@ def t_newline(t):
     global lineno
     t.lexer.lineno += t.value.count("\n")
     lineno += t.value.count("\n")
-    print("New lines: %d" % t.lexer.lineno)
+    #print("New lines: %d" % t.lexer.lineno)
 
 def t_error(t):
     print("Illegal character on line '%d'" % t.lexer.lineno)
@@ -228,9 +238,10 @@ global_lexer.lineno = 1
 
 # Precedence rules for the arithmetic operators
 precedence = (
-    ('nonassoc','EQUALCOND','UNEQUALCOND'),
+    ('nonassoc','EQUALCOND','UNEQUALCOND','SMALLER','BIGGER'),
     ('left','PLUS','MINUS'),
     ('left','TIMES','DIVIDE'),
+    ('left','POWEROF'),
     ('right','UNARY_OPS'),
     )
 
@@ -244,11 +255,25 @@ def p_statement(p):
 def p_line(p):
     '''line : newline
             | module
+            | package
     '''
 
 def p_module(p):
     '''module : MODULE NAME param_ports_opt module_ports_opt SEMICOLON module_body ENDMODULE
     '''
+
+def p_package(p):
+    '''package : PACKAGE NAME SEMICOLON package_body ENDPACKAGE
+    '''
+
+def p_package_body(p):
+    '''package_body : package_body package_body_line
+                      |
+    '''
+
+def p_package_body_line(p):
+    '''package_body_line : LOCALPARAM paramtype_opt NAME assignment_opt SEMICOLON'''
+    print("localparam %s defined to %s" % (p[3],p[4]))
 
 def p_module_ports_opt(p):
     '''module_ports_opt : LPAREN RPAREN
@@ -269,8 +294,9 @@ def p_module_ports(p):
     '''
 
 def p_module_port(p):
-    '''module_port : portdir_opt port_data_type ranges_opt NAME ranges_opt
+    '''module_port : portdir_opt port_data_type ranges_opt record_lineno NAME ranges_opt
     '''
+    print("Signal %s on line number %d (width_before: %s, width_after: %s)" % (p[5], recorded_lineno, p[3],p[6]))
 
 def p_port_data_type(p):
     '''port_data_type :  datatype
@@ -304,9 +330,17 @@ def p_param_ports(p):
     '''
 
 def p_param_port(p):
-    '''param_port : PARAMETER paramtype_opt ranges_opt NAME ranges_opt assignment_opt
+    '''param_port : PARAMETER record_lineno paramtype_opt ranges_opt NAME ranges_opt assignment_opt
     '''
-    print(p[4]+" on line number %d" % lineno)
+    print(p[5]+" on line number %d assigned %s" % (recorded_lineno, p[7]))
+
+recorded_lineno = 0
+
+def p_record_lineno(p):
+    '''record_lineno : 
+    '''
+    global recorded_lineno
+    recorded_lineno = lineno
 
 def p_paramtype_opt(p):
     '''paramtype_opt : paramtype
@@ -323,12 +357,33 @@ def p_module_body(p):
     '''
 
 def p_module_body_line(p):
-    '''module_body_line : datatype ranges_opt NAME ranges_opt assignment_opt SEMICOLON
-                        | ignore_block IGNOREBEGINENDCONTENT
-                        | LOCALPARAM NAME assignment_opt SEMICOLON
-                        | instance
+    '''module_body_line : module_body_line_core
+                        | LOCALPARAM paramtype_opt NAME assignment_opt SEMICOLON
                         | generate_block
     '''
+
+def p_module_body_core(p):
+    '''module_body_core :  module_body_core module_body_line_core
+                          |
+    '''
+
+def p_module_body_line_core(p):
+    '''module_body_line_core : datatype ranges_opt NAME ranges_opt assignment_opt SEMICOLON
+                        | ignore_block IGNOREBEGINENDCONTENT else_ignore_opt
+                        | instance
+    '''
+
+def p_else_ignore_opt(p):
+    '''else_ignore_opt : else_ignore IGNOREBEGINENDCONTENT
+                         |
+    '''
+
+def p_else_ignore(p):
+    '''else_ignore : ELSE'''
+    global_lexer.begin("ignorebeginend")
+    global_lexer.ignore_start = global_lexer.lexpos        # Record the starting position
+    global_lexer.level = 0                          # Initial brace level
+    global_lexer.isbeginend = 0
 
 def p_generate_block(p):
     '''generate_block : GENERATE generate_body ENDGENERATE
@@ -341,10 +396,51 @@ def p_generate_body(p):
 
 def p_generate_body_line(p):
     '''generate_body_line :  if_block
+                           | GENVAR NAME SEMICOLON
+                           | for_block
+                           | module_body_line_core
     '''
 
 def p_if_block(p):
-    '''if_block : IF LPAREN expression_opt RPAREN BEGIN module_body END
+    '''if_block : IF LPAREN expression_opt RPAREN BEGIN label_opt module_body END label_opt else_block_opt
+    '''
+
+def p_else_block_opt(p):
+    '''else_block_opt : else_block
+                        |
+    '''
+
+def p_else_block(p):
+    '''else_block : ELSE uni_block'''
+
+def p_for_block(p):
+    '''for_block :  for_start for_line SEMICOLON
+                  | for_start BEGIN label_opt for_body END label_opt'''
+
+def p_uni_block(p):
+    '''uni_block : for_line SEMICOLON
+                  | BEGIN label_opt for_body END label_opt'''
+
+def p_for_line(p):
+    '''for_line : module_body_line_core
+                 | if_block
+    '''
+
+def p_for_body(p):
+    '''for_body :   for_line
+                  | for_body for_line
+    '''
+
+def p_for_start(p):
+    '''for_start : FOR LPAREN NAME assignment SEMICOLON expression SEMICOLON NAME assignment RPAREN'''
+
+def p_label_opt(p):
+    '''label_opt : label
+                  |
+    '''
+
+def p_label(p):
+    '''label : COLON NAME
     '''
 
 def p_ignore_block(p):
@@ -363,6 +459,7 @@ def p_ignore_block(p):
 def p_instance(p):
     '''instance : NAME instanceparam_opt NAME instancesignal_opt SEMICOLON
     '''
+    print("Has instance %s of %s" % (p[3], p[1]))
 
 def p_instanceparam_opt(p):
     '''instanceparam_opt : instanceparam
@@ -420,10 +517,18 @@ def p_assignment_opt(p):
     '''assignment_opt : assignment
                         | 
     '''
+    if len(p) > 1:
+      p[0] = p[1]
 
 def p_assignment(p):
     '''assignment : EQUALS expression_or_expressions_comma
+                    | PLUSPLUS
+                    | MINUSMINUS
     '''
+    if len(p) > 2:
+      p[0] = p[2]
+    else:
+      p[0] = p[1]
 
 def p_expression_opt(p):
     '''expression_opt : expression
@@ -438,25 +543,49 @@ def p_expression_or_expressions_comma(p):
     '''expression_or_expressions_comma :  optional_tick LCURLY expressions_comma_opt RCURLY
                                         | expression
     '''
+    if len(p) > 2:
+      p[0] = p[1] + p[2] + p[3] + p[4]
+    else:
+      p[0] = p[1]
 
 def p_optional_tick(p):
     '''optional_tick : TICK
                       |
     '''
+    if len(p) > 1:
+      p[0] = "'"
+    else:
+      p[0] = ""
 
 def p_expression(p):
     '''expression :   basic_expression
     '''
+    p[0] = p[1]
                     #| compareexpression
                     #| expression compareexpression
 
+def p_basic_expression_name_or_name_in_package(p):
+    '''basic_expression :   name_or_name_in_package'''
+    p[0] = p[1]
+
+def p_basic_expression_plus(p):
+    '''basic_expression :   basic_expression PLUS basic_expression'''
+    p[0] = "%s + %s" % (p[1], p[3])
+
+def p_basic_expression_minus(p):
+    '''basic_expression :   basic_expression MINUS basic_expression'''
+    p[0] = "%s - %s" % (p[1], p[3])
+
+def p_basic_expression_number(p):
+    '''basic_expression :   NUMBER'''
+    p[0] = p[1]
+
+def p_basic_expression_numberspec(p):
+    '''basic_expression :   NUMBERSPEC'''
+    p[0] = p[1]
+
 def p_basic_expression(p):
-    '''basic_expression :    NUMBER
-                           | name_or_name_in_package
-                           | NUMBERSPEC
-                           | LPAREN expression RPAREN
-                           | basic_expression PLUS basic_expression
-                           | basic_expression MINUS basic_expression
+    '''basic_expression :    LPAREN expression RPAREN
                            | basic_expression TIMES basic_expression
                            | basic_expression DIVIDE basic_expression
                            | basic_expression CONDOR basic_expression
@@ -465,6 +594,9 @@ def p_basic_expression(p):
                            | basic_expression LOGICAND basic_expression
                            | basic_expression XOR basic_expression
                            | basic_expression EQUALCOND basic_expression
+                           | basic_expression SMALLER basic_expression
+                           | basic_expression BIGGER basic_expression
+                           | basic_expression POWEROF basic_expression
                            | INVERT basic_expression %prec UNARY_OPS
                            | LOGICINVERT basic_expression %prec UNARY_OPS
                            | MINUS basic_expression %prec UNARY_OPS
@@ -489,17 +621,26 @@ def p_expressions_comma_opt(p):
     '''expressions_comma_opt : expressions_comma
                                |
     '''
+    if len(p) > 1:
+      p[0] = p[1]
+    else:
+      p[0] = ""
 
 def p_expressions_comma(p):
     '''expressions_comma :  expression_or_expressions_comma
                            | expressions_comma COMMA expression_or_expressions_comma
 
     '''
+    if len(p) > 2:
+      p[0] = str(p[1]) + "," + str(p[3])
+    else:
+      p[0] = p[1]
 
 def p_name_or_name_in_package(p):
     '''name_or_name_in_package :  NAME ranges_opt
                                 | name_in_package ranges_opt
     '''
+    p[0] = p[1] + p[2]
 
 def p_name_in_package(p):
     '''name_in_package : NAME DOUBLECOLON NAME
@@ -510,20 +651,33 @@ def p_ranges_opt(p):
     '''ranges_opt : ranges
                 |
     '''
+    if len(p) > 1:
+      p[0] = p[1]
+    else:
+      p[0] = ""
 
 def p_ranges(p):
     '''ranges : range
                 | ranges range
     '''
+    if len(p) > 2:
+      p[0] = p[1] + p[2]
+    else:
+      p[0] = p[1]
 
 def p_range(p):
     '''range : LBRACKET range_numbers RBRACKET
     '''
+    p[0] = "[%s]" % (p[2])
 
 def p_range_numbers(p):
     '''range_numbers : expression
                        | expression COLON expression
     '''
+    if len(p) > 2:
+      p[0] = "%s:%s" % (p[1],p[3])
+    else:
+      p[0] = p[1]
 
 
 #def p_statement_assign(p):
